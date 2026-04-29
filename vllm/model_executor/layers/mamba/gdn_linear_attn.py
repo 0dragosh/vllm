@@ -116,6 +116,37 @@ def fi_chunk_gated_delta_rule(
         return result.unsqueeze(0), None
 
 
+def flashqla_chunk_gated_delta_rule(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    g: torch.Tensor,
+    beta: torch.Tensor,
+    initial_state: torch.Tensor,
+    output_final_state: bool,
+    cu_seqlens: torch.Tensor | None = None,
+    use_qk_l2norm_in_kernel: bool = True,
+):
+    from flash_qla import (
+        chunk_gated_delta_rule as chunk_gated_delta_rule_flashqla,
+    )
+
+    if use_qk_l2norm_in_kernel:
+        q = l2norm_fwd(q)
+        k = l2norm_fwd(k)
+
+    return chunk_gated_delta_rule_flashqla(
+        q=q,
+        k=k,
+        v=v,
+        g=g,
+        beta=beta,
+        initial_state=initial_state,
+        output_final_state=output_final_state,
+        cu_seqlens=cu_seqlens,
+    )
+
+
 @CustomOp.register("chunk_gated_delta_rule")
 class ChunkGatedDeltaRule(CustomOp):
     def __init__(self) -> None:
@@ -129,32 +160,30 @@ class ChunkGatedDeltaRule(CustomOp):
             current_platform.is_cuda() and current_platform.is_device_capability(90)
         )
 
-        if backend == "flashinfer":
-            use_flashinfer = supports_flashinfer
-            if not use_flashinfer:
+        if backend == "flashqla":
+            logger.info_once("Using FlashQLA GDN prefill kernel")
+            self._forward_method = self.forward_flashqla
+        elif backend == "flashinfer":
+            if supports_flashinfer:
+                logger.info_once("Using FlashInfer GDN prefill kernel")
+                self._forward_method = self.forward_cuda
+            else:
                 logger.warning_once(
                     "GDN prefill backend 'flashinfer' is selected but "
                     "cannot use this kernel on the current platform. "
                     "Falling back to Triton/FLA."
                 )
+                self._forward_method = self.forward_native
         elif backend == "triton":
-            use_flashinfer = False
-        else:
-            use_flashinfer = supports_flashinfer
-
-        if use_flashinfer:
-            logger.info_once("Using FlashInfer GDN prefill kernel")
-            logger.info_once(
-                "FlashInfer GDN prefill kernel is JIT-compiled; first run may "
-                "take a while to compile. Set `--gdn-prefill-backend triton` to "
-                "avoid JIT compile time.",
-            )
-        else:
             logger.info_once("Using Triton/FLA GDN prefill kernel")
-
-        self._forward_method = (
-            self.forward_cuda if use_flashinfer else self.forward_native
-        )
+            self._forward_method = self.forward_native
+        else:
+            if supports_flashinfer:
+                logger.info_once("Using FlashInfer GDN prefill kernel")
+                self._forward_method = self.forward_cuda
+            else:
+                logger.info_once("Using Triton/FLA GDN prefill kernel")
+                self._forward_method = self.forward_native
 
     def forward_cuda(
         self,
@@ -171,6 +200,32 @@ class ChunkGatedDeltaRule(CustomOp):
         use_qk_l2norm_in_kernel: bool = True,
     ):
         return fi_chunk_gated_delta_rule(
+            q=q,
+            k=k,
+            v=v,
+            g=g,
+            beta=beta,
+            initial_state=initial_state,
+            output_final_state=output_final_state,
+            cu_seqlens=cu_seqlens,
+            use_qk_l2norm_in_kernel=use_qk_l2norm_in_kernel,
+        )
+
+    def forward_flashqla(
+        self,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        g: torch.Tensor,
+        beta: torch.Tensor,
+        initial_state: torch.Tensor,
+        output_final_state: bool,
+        cu_seqlens: torch.Tensor | None = None,
+        chunk_indices: torch.Tensor | None = None,
+        chunk_offsets: torch.Tensor | None = None,
+        use_qk_l2norm_in_kernel: bool = True,
+    ):
+        return flashqla_chunk_gated_delta_rule(
             q=q,
             k=k,
             v=v,

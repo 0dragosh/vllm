@@ -64,6 +64,9 @@
     "RUN_WHEEL_CHECK": {
       "default": "true"
     },
+    "FLASHQLA_REF": {
+      "default": "c9b9827036ffe8731e99bab65c51f86320767b33"
+    },
     "FLASHINFER_VERSION": {
       "default": "0.6.8.post1"
     },

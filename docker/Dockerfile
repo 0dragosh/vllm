@@ -577,6 +577,13 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         --extra-index-url ${PYTORCH_CUDA_INDEX_BASE_URL}/cu$(echo $CUDA_VERSION | cut -d. -f1,2 | tr -d '.') && \
     rm /tmp/requirements-cuda.txt /tmp/common.txt
 
+# FlashQLA provides fused TileLang kernels for Qwen Gated DeltaNet prefill.
+# Pin the source ref so image rebuilds do not silently pick up upstream changes.
+ARG FLASHQLA_REF=c9b9827036ffe8731e99bab65c51f86320767b33
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system \
+        "flash_qla @ git+https://github.com/QwenLM/FlashQLA.git@${FLASHQLA_REF}"
+
 # Install FlashInfer JIT cache (requires CUDA-version-specific index URL)
 # https://docs.flashinfer.ai/installation.html
 # From versions.json: .flashinfer.version
