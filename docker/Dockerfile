@@ -495,6 +495,7 @@ RUN apt-get update -y \
     && apt-get install -y --no-install-recommends \
         software-properties-common \
         curl \
+        git \
         sudo \
         ffmpeg \
         libsm6 \
